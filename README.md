@@ -1,6 +1,10 @@
 # Humble Library UI
 
+_Disclaimer: Generated with the help of GenAI to build a usable tool; not conceived as a traditional software project._
+
 Self-hosted web UI for indexing, browsing, tagging, and downloading your Humble Bundle library. Includes a Tauri desktop shell, trusted-header auth support, OpenWebUI-powered metadata, and Docker deployment.
+
+![Home](screenshots/home_highlights.png)
 
 ## Features
 - Fast search/filter over local SQLite index (bundle/product/file/category/platform/ext/tags).
