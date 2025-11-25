@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  humble-ui:
+    image: humble-ui:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+    volumes:
+      - data:/app/data
+      - library:/library
+    restart: unless-stopped
+volumes:
+  data:
+  library:

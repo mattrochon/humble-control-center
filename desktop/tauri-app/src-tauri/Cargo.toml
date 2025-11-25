@@ -1,0 +1,16 @@
+[package]
+name = "humble-library"
+version = "0.1.0"
+description = "Tauri shell for the Humble Bundle downloader UI"
+authors = ["Humble Bundle Downloader"]
+license = "MIT"
+repository = ""
+default-run = "humble-library"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "1", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }

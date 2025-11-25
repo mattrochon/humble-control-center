@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Humble Control Room</title>
+  <style>
+    :root {
+      --bg: #0e1629;
+      --panel: rgba(255, 255, 255, 0.08);
+      --accent: #46ffd6;
+      --accent-2: #ffb347;
+      --text: #f3f6ff;
+      --muted: #96a7c2;
+      --danger: #ff6b6b;
+      --shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Display", "Segoe UI", "Helvetica Neue", sans-serif;
+      background: radial-gradient(circle at 20% 20%, #102449, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { color: var(--accent); }
+    html, body { width: 100%; margin: 0; padding: 0; overflow-x: hidden; }
+    .nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .nav a { color: var(--text); text-decoration: none; font-weight: 700; }
+    .nav .links { display: flex; gap: 14px; align-items: center; }
+    .icon-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: var(--text); text-decoration: none; }
+    .nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .nav a { color: var(--text); text-decoration: none; font-weight: 700; }
+    .nav .links { display: flex; gap: 14px; align-items: center; }
+    .icon-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: var(--text); text-decoration: none; }
+    .page {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 56px 32px 192px;
+      box-sizing: border-box;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+    .hero-title {
+      font-size: 32px;
+      letter-spacing: 0.5px;
+      margin: 0;
+    }
+    .hero-sub {
+      margin: 4px 0 0;
+      color: var(--muted);
+    }
+    .pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+      width: min(100%, calc(100vw - 20px));
+      margin-left: auto;
+      margin-right: auto;
+      box-sizing: border-box;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      letter-spacing: 0.2px;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 12px;
+    }
+    .stat {
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .stat .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .stat .value { font-size: 18px; font-weight: 700; }
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: linear-gradient(135deg, var(--accent), #39c0ff);
+      color: #041325;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+      box-shadow: 0 12px 30px rgba(70,255,214,0.3);
+    }
+    .btn.secondary {
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      box-shadow: none;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .btn:active { transform: translateY(1px); }
+    .control-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 6px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 12px;
+    }
+    .muted { color: var(--muted); }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      table-layout: fixed;
+    }
+    .table th, .table td {
+      padding: 10px 8px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      word-break: break-word;
+    }
+    .table th { color: var(--muted); font-size: 12px; letter-spacing: 0.5px; }
+    .table-wrap { overflow-x: auto; width: 100%; }
+    .row {
+      background: rgba(255,255,255,0.02);
+    }
+    .badge {
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: rgba(70,255,214,0.12);
+      color: var(--accent);
+      font-size: 12px;
+      border: 1px solid rgba(70,255,214,0.25);
+    }
+    .logs {
+      background: rgba(0,0,0,0.35);
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      height: 140px;
+      overflow: auto;
+      font-family: "SFMono-Regular", "Cascadia Code", monospace;
+      font-size: 12px;
+    }
+    .input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      outline: none;
+    }
+    .input::placeholder { color: var(--muted); }
+    .wizard {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 11, 24, 0.82);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(6px);
+      z-index: 99;
+    }
+    .wizard.active { display: flex; }
+    .wizard-panel {
+      background: #0e1d36;
+      padding: 24px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.12);
+      width: min(520px, 100%);
+      box-shadow: var(--shadow);
+    }
+    .step { display: none; }
+    .step.active { display: block; }
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text);
+      background: rgba(255,255,255,0.05);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .chip.active {
+      background: rgba(70,255,214,0.15);
+      border-color: rgba(70,255,214,0.5);
+    }
+    @media (max-width: 900px) {
+      .page { padding: 40px 24px 144px; }
+      .grid { grid-template-columns: 1fr; width: 100%; }
+      .hero { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wizard" id="wizard">
+    <div class="wizard-panel">
+      <div class="step" data-step="1">
+        <p class="pill">Setup wizard</p>
+        <h2>Connect your Humble account</h2>
+        <p class="muted">Log in at humblebundle.com in your browser, open dev tools &gt; Application &gt; Cookies, and copy the value of <strong>_simpleauth_sess</strong>.</p>
+        <div class="control-row">
+          <button class="btn" onclick="nextStep()">I have the cookie</button>
+        </div>
+      </div>
+      <div class="step" data-step="2">
+        <p class="pill">Paste cookie</p>
+        <p class="muted">Paste the full value. Quotes are part of the cookie for many users.</p>
+        <input class="input" id="cookieInput" placeholder="_simpleauth_sess value">
+        <div class="control-row">
+          <button class="btn secondary" onclick="prevStep()">Back</button>
+          <button class="btn" onclick="saveCookie()">Save cookie</button>
+        </div>
+      </div>
+      <div class="step" data-step="3">
+        <p class="pill">Library path</p>
+        <p class="muted">Choose where downloads should land. A folder per bundle is created automatically.</p>
+        <input class="input" id="libraryPathInput" placeholder="/path/to/library">
+        <div class="chip-row">
+          <div class="chip" onclick="toggleChip(this)" data-chip="trove">Include Humble Trove</div>
+        </div>
+        <div class="control-row">
+          <button class="btn secondary" onclick="prevStep()">Back</button>
+          <button class="btn" onclick="finishWizard()">Save and index</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="nav">
+      <a href="/">Humble Library</a>
+      <div class="links">
+        <a href="/">Home</a>
+        <a href="/library">Library</a>
+        <a href="/admin">Control Room</a>
+        <a class="icon-link" href="/settings">⚙ Settings</a>
+      </div>
+    </div>
+    <div class="hero">
+      <div>
+        <p class="pill">Humble Control Room</p>
+        <h1 class="hero-title">Download, sort, and surface your library fast.</h1>
+        <p class="hero-sub">Session-aware UI with rapid search, taggable assets, and one-click sync.</p>
+      </div>
+      <div>
+        <div class="pill" id="sessionStatus">Session: unknown</div>
+        <div class="control-row" style="justify-content: flex-end; margin-top: 8px;">
+          <button class="btn secondary" onclick="goHome()">Back to Home</button>
+          <button class="btn secondary" onclick="openCookieUpdate()">Update cookie</button>
+          <button class="btn secondary" onclick="openSettings()">Settings</button>
+          <button class="btn secondary" onclick="showWizard()">Setup wizard</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Status</h3>
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="label">Assets indexed</div>
+              <div class="value" id="statTotal">0</div>
+            </div>
+            <div class="stat">
+              <div class="label">Downloaded</div>
+              <div class="value" id="statDownloaded">0</div>
+            </div>
+            <div class="stat">
+              <div class="label">On disk (scan)</div>
+              <div class="value" id="statDownloadedDisk">0</div>
+            </div>
+            <div class="stat">
+              <div class="label">Bundles</div>
+              <div class="value" id="statBundles">0</div>
+            </div>
+            <div class="stat">
+              <div class="label">Products</div>
+              <div class="value" id="statProducts">0</div>
+            </div>
+          </div>
+          <p class="muted" id="libraryPathLabel" style="margin-top: 12px;"></p>
+          <p class="muted" id="aiWarning" style="margin-top: 4px;"></p>
+          <div class="control-row">
+            <button class="btn" onclick="triggerSync()">Index library</button>
+            <button class="btn secondary" onclick="triggerDownload()">Download all</button>
+            <button class="btn secondary" onclick="triggerSync(true)">Force re-sync</button>
+          </div>
+        <p class="muted" id="runMeta"></p>
+        <h3 style="margin-top:16px;">Activity</h3>
+        <div class="logs" id="logBox"></div>
+      </div>
+
+      <div class="card">
+        <h3>Library explorer</h3>
+        <div class="control-row">
+          <input class="input" id="searchInput" placeholder="Search by bundle, product, or filename" oninput="debouncedSearch()">
+          <select id="sortSelect" onchange="fetchAssets()">
+            <option value="recent">Newest</option>
+            <option value="alpha">A → Z</option>
+            <option value="bundle">By bundle</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <input class="input" id="platformInput" placeholder="Platform filter (android, linux...)">
+          <input class="input" id="extInput" placeholder="Extension filter (pdf, epub...)">
+          <select id="categorySelect" onchange="fetchAssets()">
+            <option value="">All types</option>
+            <option value="ebook">Ebook</option>
+            <option value="comic">Comic</option>
+            <option value="music">Music</option>
+            <option value="sfx">SFX</option>
+            <option value="audio">Audio (other)</option>
+            <option value="tutorial">Tutorial</option>
+            <option value="software">Software</option>
+            <option value="android">Android</option>
+            <option value="art">Art (general)</option>
+            <option value="tileset">Tileset</option>
+            <option value="sprites">Sprites</option>
+            <option value="characters">Characters</option>
+            <option value="ui">UI</option>
+            <option value="3d">3D</option>
+            <option value="rpg">RPG</option>
+            <option value="rpg maker">RPG Maker</option>
+            <option value="unity">Unity</option>
+            <option value="unreal">Unreal</option>
+            <option value="source">Source/Project</option>
+            <option value="tool">Tool</option>
+            <option value="key">Key/DLC</option>
+            <option value="archive">Archive</option>
+            <option value="other">Other</option>
+          </select>
+          <button class="btn secondary" onclick="fetchAssets()">Apply filters</button>
+        </div>
+        <div class="control-row">
+          <button class="btn secondary" onclick="reclassifyAll()">Re-run AI classification</button>
+          <input class="input" id="reclassifyIdInput" placeholder="Asset ID (optional)">
+          <button class="btn secondary" onclick="reclassifyOne()">Reclassify asset</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Bundle / Product</th>
+                <th>File</th>
+                <th>Type</th>
+                <th>Platform</th>
+                <th>Ext</th>
+                <th>Tags</th>
+              </tr>
+            </thead>
+            <tbody id="assetTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let wizardStep = 1;
+    let searchTimer;
+
+    function showWizard(step = 1) {
+      wizardStep = step;
+      setStep(step);
+      document.getElementById('wizard').classList.add('active');
+    }
+    function hideWizard() {
+      document.getElementById('wizard').classList.remove('active');
+    }
+    function setStep(step) {
+      wizardStep = step;
+      document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+      const active = document.querySelector(`.step[data-step="${step}"]`);
+      if (active) active.classList.add('active');
+    }
+    function nextStep() { setStep(Math.min(3, wizardStep + 1)); }
+    function prevStep() { setStep(Math.max(1, wizardStep - 1)); }
+    function toggleChip(el) { el.classList.toggle('active'); }
+    function openCookieUpdate() { showWizard(2); }
+
+    async function saveCookie() {
+      const cookie = document.getElementById('cookieInput').value.trim();
+      if (!cookie) return alert('Paste your _simpleauth_sess cookie first.');
+      await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie })
+      });
+      nextStep();
+    }
+
+    async function finishWizard() {
+      const library_path = document.getElementById('libraryPathInput').value.trim();
+      const trove = document.querySelector('[data-chip="trove"]').classList.contains('active');
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ library_path, trove, include: [], exclude: [], platforms: [] })
+      });
+      await triggerSync();
+      hideWizard();
+      loadStatus();
+    }
+
+    async function loadStatus() {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      const urlParams = new URLSearchParams(window.location.search);
+      const presetCategory = urlParams.get('category');
+      document.getElementById('sessionStatus').textContent = data.ready ? 'Session: ready' : 'Session: missing';
+      document.getElementById('libraryPathLabel').textContent = data.library_path ? `Library folder: ${data.library_path}` : 'Library folder not set';
+      const libInput = document.getElementById('libraryPathInput');
+      if (libInput && data.library_path) libInput.value = data.library_path;
+      const aiWarning = document.getElementById('aiWarning');
+      if (aiWarning) {
+        aiWarning.textContent = data.ai_configured
+          ? 'AI classification: OpenWebUI configured.'
+          : 'AI classification unavailable (configure OPENWEBUI_URL and OPENWEBUI_MODEL).';
+      }
+      document.getElementById('statTotal').textContent = data.stats.total;
+      document.getElementById('statDownloaded').textContent = data.stats.downloaded;
+      if (data.stats.downloaded_on_disk !== null && data.stats.downloaded_on_disk !== undefined) {
+        document.getElementById('statDownloadedDisk').textContent = data.stats.downloaded_on_disk;
+      }
+      document.getElementById('statBundles').textContent = data.stats.bundles;
+      document.getElementById('statProducts').textContent = data.stats.products;
+      if (presetCategory) {
+        const catSelect = document.getElementById('categorySelect');
+        if (catSelect) {
+          catSelect.value = presetCategory;
+        }
+      }
+      if (!data.ready) showWizard();
+      else {
+        document.getElementById('wizard').classList.remove('active');
+        fetchAssets();
+      }
+      const runMeta = [];
+      if (data.last_sync) runMeta.push(`Last indexed ${timeAgo(data.last_sync)}`);
+      if (data.last_download) runMeta.push(`Last download ${timeAgo(data.last_download)}`);
+      document.getElementById('runMeta').textContent = runMeta.join(' · ');
+    }
+
+    async function triggerSync(force) {
+      const payload = force ? { update: true } : {};
+      const res = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (res.ok) {
+        document.getElementById('runMeta').textContent = 'Indexing in background...';
+        setTimeout(loadStatus, 1200);
+      } else {
+        const detail = await res.json();
+        alert(detail.detail || 'Sync failed');
+      }
+    }
+
+    async function triggerDownload() {
+      const res = await fetch('/api/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      if (!res.ok) {
+        const detail = await res.json();
+        alert(detail.detail || 'Download failed');
+        return;
+      }
+      document.getElementById('runMeta').textContent = 'Download started...';
+    }
+
+    async function fetchAssets() {
+      const q = document.getElementById('searchInput').value.trim();
+      const platform = document.getElementById('platformInput').value.trim();
+      const ext = document.getElementById('extInput').value.trim();
+      const category = document.getElementById('categorySelect').value;
+      const sort = document.getElementById('sortSelect').value;
+      const url = new URL('/api/assets', window.location.origin);
+      if (q) url.searchParams.set('q', q);
+      if (platform) url.searchParams.set('platform', platform);
+      if (ext) url.searchParams.set('ext', ext);
+      if (category) url.searchParams.set('category', category);
+      url.searchParams.set('sort', sort);
+      const res = await fetch(url);
+      const data = await res.json();
+      renderAssets(data.items);
+    }
+
+    async function reclassifyAll() {
+      const res = await fetch('/api/reclassify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const detail = await res.json();
+        alert(detail.detail || 'Reclassification failed');
+        return;
+      }
+      const info = await res.json();
+      alert(`Reclassified ${info.updated} assets (skipped ${info.skipped}).`);
+      fetchAssets();
+    }
+
+    async function reclassifyOne() {
+      const idInput = document.getElementById('reclassifyIdInput').value.trim();
+      if (!idInput) return alert('Enter an asset ID to reclassify.');
+      const id = parseInt(idInput, 10);
+      if (Number.isNaN(id)) return alert('Invalid asset ID.');
+      const res = await fetch('/api/reclassify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asset_ids: [id] }),
+      });
+      if (!res.ok) {
+        const detail = await res.json();
+        alert(detail.detail || 'Reclassification failed');
+        return;
+      }
+      const info = await res.json();
+      alert(`Reclassified asset ${id}: updated ${info.updated}, skipped ${info.skipped}.`);
+      fetchAssets();
+    }
+
+    function renderAssets(items) {
+      const body = document.getElementById('assetTable');
+      body.innerHTML = '';
+      items.forEach((item) => {
+        const tr = document.createElement('tr');
+        tr.classList.add('row');
+        const category = (item.category || '').trim() || '-';
+        tr.innerHTML = `
+          <td><div class="label">${item.bundle_title || ''}</div><div>${item.product_title || ''}</div></td>
+          <td>${item.file_name || ''}</td>
+          <td>${category}</td>
+          <td><span class="badge">${item.platform || '-'}</span></td>
+          <td>${item.ext || ''}</td>
+          <td>${item.tags || ''}</td>
+        `;
+        body.appendChild(tr);
+      });
+    }
+
+    function debouncedSearch() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(fetchAssets, 200);
+    }
+
+    function timeAgo(ts) {
+      const seconds = Math.floor(Date.now()/1000 - ts);
+      if (seconds < 60) return `${seconds}s ago`;
+      const minutes = Math.floor(seconds/60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes/60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours/24);
+      return `${days}d ago`;
+    }
+
+    function appendLogLine(line) {
+      const box = document.getElementById('logBox');
+      const prefix = box.textContent ? '\n' : '';
+      box.textContent += prefix + line;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function loadLogs() {
+      const res = await fetch('/api/logs');
+      const data = await res.json();
+      const box = document.getElementById('logBox');
+      box.textContent = data.lines.join('\n');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    let ws;
+
+    function connectWS() {
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${protocol}://${window.location.host}/ws/updates`);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'log' && data.line) appendLogLine(data.line);
+          if (data.type === 'download-start') {
+            document.getElementById('runMeta').textContent = `Download 0/${data.total}`;
+          }
+          if (data.type === 'download-progress') {
+            const failureNote = data.failures ? ` (failures: ${data.failures})` : '';
+            const label = `Download ${data.done}/${data.total}${data.file ? ` - ${data.file}` : ''}${failureNote}`;
+            document.getElementById('runMeta').textContent = label;
+          }
+          if (data.type === 'sync-complete' || data.type === 'download-complete') loadStatus();
+        } catch (err) {
+          console.warn('WS parse failed', err);
+        }
+      };
+      ws.onclose = () => {
+        setTimeout(connectWS, 1500);
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    loadStatus();
+    loadLogs();
+    connectWS();
+
+  function goHome() {
+      window.location.href = '/';
+  }
+  function openSettings() {
+      window.location.href = '/settings';
+  }
+  </script>
+</body>
+</html>

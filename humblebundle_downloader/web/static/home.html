@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Humble Library Home</title>
+  <style>
+    :root {
+      --bg: #0c1220;
+      --panel: rgba(255,255,255,0.05);
+      --text: #f4f7ff;
+      --muted: #9ab0d0;
+      --accent: #46ffd6;
+      --accent-2: #ffb347;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 20%, #142341, var(--bg));
+      color: var(--text);
+      font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    .page { max-width: 1200px; margin: 0 auto; padding: 32px 20px 80px; }
+    .icon-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: var(--text); text-decoration: none; }
+    .user-pill { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); font-size: 12px; }
+    .hero { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; }
+    .hero h1 { margin: 0; font-size: 32px; }
+    .hero p { margin: 6px 0 0; color: var(--muted); }
+    .pill { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); font-size: 12px; display: inline-flex; gap: 8px; align-items: center; }
+    .btn { border: none; border-radius: 10px; padding: 10px 14px; background: linear-gradient(135deg, var(--accent), #39c0ff); color: #041325; font-weight: 700; cursor: pointer; box-shadow: 0 12px 30px rgba(70,255,214,0.25); }
+    .section { margin-top: 32px; }
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .section-title { margin: 0; font-size: 18px; letter-spacing: 0.4px; }
+    .muted { color: var(--muted); }
+    .row { display: grid; grid-auto-flow: column; grid-auto-columns: 220px; gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+    .card {
+      position: relative;
+      height: 180px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(70,255,214,0.15), rgba(255,179,71,0.08));
+      border: 1px solid rgba(255,255,255,0.12);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      cursor: pointer;
+    }
+    .card a { color: inherit; text-decoration: none; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; width: 100%; position: relative; }
+    .card .bg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center;
+      filter: saturate(1.1);
+      opacity: 0.3;
+      transition: opacity 0.2s ease;
+    }
+    .card:hover .bg { opacity: 0.5; }
+    .card .bg.placeholder {
+      background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), rgba(0,0,0,0.5));
+      opacity: 0.35;
+    }
+    .card .label { font-size: 11px; color: var(--muted); }
+    .card .title { font-size: 15px; font-weight: 700; margin: 2px 0 0; }
+    .badge { position: absolute; top: 10px; right: 10px; padding: 6px 10px; border-radius: 999px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.15); font-size: 12px; }
+    .monogram {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-size: 52px;
+      font-weight: 800;
+      color: rgba(255,255,255,0.15);
+      letter-spacing: 1px;
+    }
+    .card-content {
+      position: relative;
+      padding: 12px;
+      z-index: 2;
+      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.45) 65%);
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+    .navbar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 8px; }
+    .category-chip { padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: var(--text); font-size: 12px; }
+    @media (max-width: 800px) {
+      .hero { grid-template-columns: 1fr; }
+      .row { grid-auto-columns: 80%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="navbar" style="margin-bottom:12px;">
+      <div class="pill">Humble Library</div>
+      <div style="display:flex; gap:12px;">
+      <a class="category-chip" href="/">Home</a>
+      <a class="category-chip" href="/library">Library</a>
+      <a class="category-chip" href="/admin">Control Room</a>
+      <a class="icon-link" href="/settings">⚙ Settings</a>
+      <span class="user-pill" id="userBadgeHome" style="display:none;"></span>
+    </div>
+    </div>
+    <div class="hero">
+      <div>
+        <p class="pill">Humble Library</p>
+        <h1>Jump back into your collection.</h1>
+        <p class="muted">Browse by type, pick up where you left off, or open the control room to sync and download.</p>
+      </div>
+      <div class="navbar">
+        <button class="btn" onclick="openAdmin()">Open Control Room</button>
+      </div>
+    </div>
+
+    <div id="highlights"></div>
+  </div>
+
+  <script>
+    async function fetchStatus() {
+      const res = await fetch('/api/status');
+      if (!res.ok) return { ready: false, stats: { total: 0 } };
+      return res.json();
+    }
+
+    function openAdmin(category) {
+      const url = new URL('/admin', window.location.origin);
+      if (category) url.searchParams.set('category', category);
+      window.location.href = url.toString();
+    }
+
+    function openLibrary(category) {
+      const url = new URL('/library', window.location.origin);
+      if (category) url.searchParams.set('category', category);
+      window.location.href = url.toString();
+    }
+
+    function renderHighlights(groups) {
+      const container = document.getElementById('highlights');
+      container.innerHTML = '';
+      if (!groups.length) {
+        container.innerHTML = '<p class="muted">No assets yet. Open Control Room to sync your library.</p>';
+        return;
+      }
+      groups.forEach(group => {
+        const section = document.createElement('div');
+        section.className = 'section';
+        section.innerHTML = `
+          <div class="section-header">
+            <div>
+              <h3 class="section-title">${group.category || 'Other'}</h3>
+              <div class="muted">${group.count} items</div>
+            </div>
+            <button class="btn" onclick="openLibrary('${group.category || ''}')">See all</button>
+          </div>
+          <div class="row" id="row-${group.category || 'other'}"></div>
+        `;
+        container.appendChild(section);
+        const row = section.querySelector('.row');
+        group.items.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          const imgStyle = item.image_url ? `background-image:url('${item.image_url}')` : '';
+          const monogram = (item.product_title || item.file_name || '?').slice(0,1).toUpperCase();
+          const href = `/item?id=${item.id}`;
+          card.innerHTML = `
+            <a href="${href}">
+              <div class="bg ${item.image_url ? '' : 'placeholder'}" style="${imgStyle}"></div>
+              ${item.image_url ? '' : `<div class="monogram">${monogram}</div>`}
+              <div class="card-content">
+                <div class="badge">${item.ext || ''}</div>
+                <div class="label">${item.bundle_title || ''}</div>
+                <div class="title">${item.product_title || item.file_name || ''}</div>
+              </div>
+            </a>
+          `;
+          row.appendChild(card);
+        });
+      });
+    }
+
+    async function loadHighlights() {
+      const status = await fetchStatus();
+      if (!status.ready || (status.stats && status.stats.total === 0)) {
+        openAdmin();
+        return;
+      }
+      const res = await fetch('/api/highlights');
+      const data = await res.json();
+      renderHighlights(data);
+    }
+
+    loadHighlights();
+    fetch('/api/me').then(r => r.json()).then(d => {
+      if (d.user) {
+        const badge = document.getElementById('userBadgeHome');
+        badge.style.display = 'inline-flex';
+        badge.textContent = d.user;
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>

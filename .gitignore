@@ -1,0 +1,17 @@
+.DS_Store
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+node_modules/
+desktop/tauri-app/node_modules/
+desktop/tauri-app/src-tauri/target/
+data/
+library/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+screenshots/*.psd

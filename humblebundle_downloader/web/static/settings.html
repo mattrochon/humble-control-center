@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <style>
+    :root {
+      --bg: #0c1220;
+      --panel: rgba(255,255,255,0.06);
+      --text: #f4f7ff;
+      --muted: #9ab0d0;
+      --accent: #46ffd6;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 20% 20%, #152341, #0c1220); color: var(--text); font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif; min-height: 100vh; }
+    .page { max-width: 1100px; margin: 0 auto; padding: 28px 16px 80px; }
+    .nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .nav a { color: var(--text); text-decoration: none; font-weight: 700; }
+    .nav .links { display: flex; gap: 14px; align-items: center; }
+    .icon-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); color: var(--text); text-decoration: none; }
+    .user-pill { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); font-size: 12px; }
+    h1 { margin: 0 0 8px; }
+    .muted { color: var(--muted); margin: 0 0 16px; }
+    .card { background: var(--panel); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); margin-bottom: 14px; }
+    label { display: block; margin-top: 10px; font-weight: 600; }
+    .input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: var(--text); outline: none; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .btn { border: none; border-radius: 10px; padding: 10px 12px; background: linear-gradient(135deg, var(--accent), #39c0ff); color: #041325; font-weight: 700; cursor: pointer; box-shadow: 0 12px 30px rgba(70,255,214,0.25); margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="nav">
+      <a href="/">Humble Library</a>
+      <div class="links">
+        <a href="/">Home</a>
+        <a href="/library">Library</a>
+        <a href="/admin">Control Room</a>
+        <a href="/settings">Settings</a>
+        <span class="user-pill" id="userBadgeSettings" style="display:none;"></span>
+      </div>
+    </div>
+    <h1>Settings</h1>
+    <p class="muted">Configure your session, paths, filters, and AI settings. Values are stored in the local app database.</p>
+
+    <div class="card">
+      <h3>Credentials</h3>
+      <label>Humble session cookie (_simpleauth_sess)</label>
+      <input class="input" id="cookie" placeholder="Paste your _simpleauth_sess value">
+    </div>
+
+    <div class="card">
+      <h3>Library</h3>
+      <label>Library path</label>
+      <input class="input" id="libraryPath" placeholder="/path/to/library">
+      <div class="row">
+        <div>
+          <label>Include extensions (comma separated)</label>
+          <input class="input" id="include" placeholder="pdf,epub">
+        </div>
+        <div>
+          <label>Exclude extensions (comma separated)</label>
+          <input class="input" id="exclude" placeholder="zip,rar">
+        </div>
+        <div>
+          <label>Platforms (comma separated)</label>
+          <input class="input" id="platforms" placeholder="windows,linux">
+        </div>
+        <div>
+      <label>Trove</label>
+      <select class="input" id="trove">
+        <option value="false">Disabled</option>
+        <option value="true">Enabled</option>
+      </select>
+      <p class="muted" style="margin-top:4px;">Humble Trove is the rotating DRM-free collection; enable to include it in indexing.</p>
+    </div>
+  </div>
+    </div>
+
+    <div class="card">
+      <h3>AI (OpenWebUI)</h3>
+      <label>API URL</label>
+      <input class="input" id="owuiUrl" placeholder="http://localhost:3000/api/v1">
+      <label>Model</label>
+      <input class="input" id="owuiModel" placeholder="name-of-model">
+      <label>API Key</label>
+      <input class="input" id="owuiKey" placeholder="Bearer token if required">
+    </div>
+
+    <div class="card">
+      <h3>Trusted header auth (optional)</h3>
+      <p class="muted">Require a trusted proxy to inject a header. Leave blank to disable. Header value is not validated—presence implies trust.</p>
+      <label>Header name</label>
+      <input class="input" id="authHeaderName" placeholder="X-Forwarded-User">
+      <label>Header value</label>
+      <input class="input" id="authHeaderValue" placeholder="(optional, ignored)">
+    </div>
+
+    <div class="card">
+      <h3>Setup</h3>
+      <p class="muted">Run the Humble token wizard to grab your session cookie.</p>
+      <button class="btn" onclick="openWizard()">Open token wizard</button>
+    </div>
+
+    <button class="btn" onclick="saveSettings()">Save settings</button>
+    <p class="muted" id="statusMsg"></p>
+  </div>
+
+  <script>
+    async function loadSettings() {
+      const res = await fetch('/api/settings');
+      if (!res.ok) return;
+      const data = await res.json();
+      document.getElementById('cookie').value = data.session_cookie || '';
+      document.getElementById('libraryPath').value = data.library_path || '';
+      document.getElementById('include').value = (data.include || []).join(',');
+      document.getElementById('exclude').value = (data.exclude || []).join(',');
+      document.getElementById('platforms').value = (data.platforms || []).join(',');
+      document.getElementById('trove').value = String(data.trove ? true : false);
+      document.getElementById('owuiUrl').value = data.openwebui_url || '';
+      document.getElementById('owuiModel').value = data.openwebui_model || '';
+      document.getElementById('owuiKey').value = data.openwebui_api_key || '';
+      document.getElementById('authHeaderName').value = data.auth_header_name || '';
+      document.getElementById('authHeaderValue').value = data.auth_header_value || '';
+    }
+
+    async function saveSettings() {
+      const payload = {
+        session_cookie: document.getElementById('cookie').value.trim(),
+        library_path: document.getElementById('libraryPath').value.trim(),
+        include: splitList(document.getElementById('include').value),
+        exclude: splitList(document.getElementById('exclude').value),
+        platforms: splitList(document.getElementById('platforms').value),
+        trove: document.getElementById('trove').value === 'true',
+        openwebui_url: document.getElementById('owuiUrl').value.trim(),
+        openwebui_model: document.getElementById('owuiModel').value.trim(),
+        openwebui_api_key: document.getElementById('owuiKey').value.trim(),
+        auth_header_name: document.getElementById('authHeaderName').value.trim(),
+        auth_header_value: document.getElementById('authHeaderValue').value.trim(),
+      };
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const status = document.getElementById('statusMsg');
+      if (res.ok) {
+        status.textContent = 'Saved.';
+      } else {
+        status.textContent = 'Save failed.';
+      }
+    }
+
+    function openWizard() {
+      window.location.href = '/admin?wizard=1';
+    }
+
+    function splitList(str) {
+      return str.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    loadSettings();
+    fetch('/api/me').then(r => r.json()).then(d => {
+      if (d.user) {
+        const badge = document.getElementById('userBadgeSettings');
+        badge.style.display = 'inline-flex';
+        badge.textContent = d.user;
+      }
+    }).catch(() => {});
+  </script>
+</body>
+</html>

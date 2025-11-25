@@ -1,0 +1,40 @@
+{
+  "package": {
+    "productName": "Humble Library",
+    "version": "0.1.0"
+  },
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../index.html",
+    "distDir": "../"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Humble Library",
+        "url": "http://127.0.0.1:8000",
+        "fullscreen": false,
+        "resizable": true,
+        "visible": true,
+        "width": 1280,
+        "height": 800
+      }
+    ],
+    "allowlist": {
+        "all": false,
+        "shell": {
+            "all": false
+        }
+    },
+    "bundle": {
+      "active": true,
+      "targets": "all",
+      "identifier": "com.example.humblelibrary",
+      "icon": [],
+      "resources": [],
+      "copyright": ""
+    }
+  }
+}
