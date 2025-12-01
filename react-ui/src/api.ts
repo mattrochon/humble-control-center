@@ -49,7 +49,10 @@ export async function fetchAsset(id: string) {
 
 export async function fetchBundles() {
   const { data } = await api.get("/bundles");
-  return data;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray((data as any)?.items)) return (data as any).items;
+  console.error("Unexpected /bundles payload", data);
+  throw new Error("Invalid /bundles payload");
 }
 
 export async function fetchPurchases() {

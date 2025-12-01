@@ -132,6 +132,7 @@ class Coordinator:
         self.state = state
         self.db = db
         self.events = events
+        self.busy: Optional[str] = None
         self.syncing = False
         self.downloading = False
         self.last_sync: float | None = None
@@ -161,16 +162,28 @@ class Coordinator:
             self.log_lines.append(line)
             self.log_lines = self.log_lines[-200:]
         self.events.publish({"type": "log", "line": line, "ts": time.time()})
+        if self.busy:
+            self.events.publish({"type": "worker", "worker": self.busy, "status": "running"})
 
     def _start_metadata_worker(self):
         def _worker():
+            # Initial delay so the API can come up immediately.
+            time.sleep(3)
             while not self.stop_event.is_set():
                 try:
+                    self.busy = "metadata"
+                    self.events.publish({"type": "worker", "worker": "metadata", "status": "running"})
                     self._metadata_pass(force=False)
-                    time.sleep(120)
                 except Exception:
                     logger.exception("Metadata worker failed")
-                    time.sleep(120)
+                finally:
+                    self.busy = None
+                    self.events.publish({"type": "worker", "worker": "metadata", "status": "idle"})
+                # Sleep between passes.
+                for _ in range(120):
+                    if self.stop_event.is_set():
+                        break
+                    time.sleep(1)
 
         t = threading.Thread(target=_worker, daemon=True, name="metadata-worker")
         t.start()
@@ -341,14 +354,13 @@ class Coordinator:
         event: dict | None = None
         try:
             session = self._session()
-            known_orders = db.distinct_order_ids(include_trove=trove if trove is not None else False)
             indexer = LibraryIndexer(
                 session=session,
                 library_path=self.state.data["library_path"],
                 ext_include=self.state.data.get("include"),
                 ext_exclude=self.state.data.get("exclude"),
                 platforms=self.state.data.get("platforms"),
-                purchase_keys=known_orders or None,
+                purchase_keys=None,
                 trove=trove if trove is not None else self.state.data.get("trove"),
             )
             assets = indexer.collect()
@@ -610,9 +622,11 @@ def item_page():
 
 @app.get("/bundle")
 def bundle_page():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     if not state.ready():
         return RedirectResponse(url="/settings")
-    return FileResponse(static_dir / "bundle.html")
+    raise HTTPException(status_code=404, detail="React UI not built")
 
 
 @app.get("/admin")
@@ -626,9 +640,11 @@ def admin():
 
 @app.get("/purchases")
 def purchases_page():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     if not state.ready():
         return RedirectResponse(url="/settings")
-    return FileResponse(static_dir / "purchases.html")
+    raise HTTPException(status_code=404, detail="React UI not built")
 
 
 @app.get("/settings")
@@ -781,14 +797,6 @@ def status():
     }
 
 
-@app.get("/library")
-def library():
-    return FileResponse(static_dir / "library.html")
-
-
-@app.get("/item")
-def item():
-    return FileResponse(static_dir / "item.html")
 
 
 @app.get("/api/assets/{asset_id}")
@@ -1205,6 +1213,17 @@ async def ws_updates(websocket: WebSocket):
         event_bus.unsubscribe_async(q)
         with suppress(Exception):
             await websocket.close()
+
+
+# Catch-all for SPA routes (after all API routes so /api/* is not shadowed).
+@app.get("/{path_name:path}")
+def spa_fallback(path_name: str):
+    # Never serve the SPA for API requests; return 404 instead.
+    if path_name.startswith("api"):
+        raise HTTPException(status_code=404, detail="Not found")
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 def run():

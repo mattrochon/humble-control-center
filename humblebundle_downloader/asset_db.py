@@ -718,7 +718,7 @@ class AssetDB:
             bundles = conn.execute(
                 """
                 SELECT
-                    COALESCE(NULLIF(bundle_title, ''), COALESCE(NULLIF(order_name, ''), COALESCE(NULLIF(product_title, ''), order_id))) AS label,
+                    COALESCE(NULLIF(bundle_title, ''), COALESCE(NULLIF(product_title, ''), order_id)) AS label,
                     order_id,
                     COUNT(*) AS total,
                     SUM(CASE WHEN downloaded = 1 THEN 1 ELSE 0 END) AS downloaded

@@ -22,19 +22,33 @@ export default function Home() {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const nav = useNavigate();
 
   useEffect(() => {
-    setLoading(true);
-    fetchStatus().then((s) => setReady(s.ready));
-    Promise.all([
-      fetchBundles().then(setBundles).catch(() => setBundles([])),
-      fetch("/api/highlights")
-        .then((r) => r.json())
-        .then((data) => setHighlights(data || []))
-        .catch(() => setHighlights([])),
-    ]).finally(() => setLoading(false));
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const status = await fetchStatus();
+        setReady(status.ready);
+        const b = await fetchBundles();
+        setBundles(b);
+        const hiRes = await fetch("/api/highlights");
+        const hiData = await hiRes.json();
+        if (!Array.isArray(hiData)) throw new Error("Invalid highlights payload");
+        setHighlights(hiData);
+      } catch (err: any) {
+        console.error(err);
+        setError(err?.message || "Failed to load data");
+        setBundles([]);
+        setHighlights([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
   if (!ready) {
@@ -51,6 +65,7 @@ export default function Home() {
         </div>
         <button className="btn" onClick={() => nav("/admin")}>Open Control Room</button>
       </div>
+      {error && <div className="pill" style={{ background: "rgba(255,179,71,0.15)", borderColor: "rgba(255,179,71,0.4)", color: "#ffb347" }}>{error}</div>}
 
       <h3 style={{ marginTop: 12 }}>Bundles</h3>
       <div className="bundle-grid bundle-grid-compact">
