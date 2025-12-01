@@ -1,45 +1,32 @@
-## Current State (2025-11-24)
+## Current State (2025-11-27)
 
-- **UI pages**: Home (`/`), Library (`/library`), Item detail (`/item?id=...`), Admin/Control Room (`/admin`).
-- **Home** shows downloaded-only category highlights, uses asset `image_url` if present; “See all” links to Library with category preset.
-- **Library** lists assets with thumbnail (image_url), rows clickable to detail; columns: Product, Bundle, File, Category, Platform, Ext; filter by category/platform/ext/search/sort.
-- **Item detail** shows cover image, description, metadata, download link if on disk, and tags (from `asset_tags`).
-- **Admin** has Back-to-Home button, Index/Force re-sync/Download buttons; shows stats, logs, and search table.
+- **UI pages**: Home, Library, Item detail, Admin/Control Room, Settings. Home shows a Bundles section (opens Library filtered by bundle) and downloaded-only category highlights.
+- **Library**: filters by bundle/category/platform/ext/search/sort, toggle to include non-downloaded, shows tags/status. Item detail shows activation keys when present (no bad download link).
+- **Admin**: stats/logs, sync/download controls, AI reclassify, wizard, debug panels for purchases/orders/bundle JSON.
 
-- **Metadata flow**:
-  - LibraryIndexer collects assets; extracts `image_url` from Humble order/trove payload fields (`tile_image`, icon/image/cover/logo/tile/thumbnail/thumb/visuals) and descriptions from description-like fields.
-  - Categories: heuristic map + OpenWebUI classification (categories include game, ebook, comic, audio, video, software, android, archive, key, other, sounds, art, 3d, rpg, rpg maker, unity, unreal).
-  - Metadata worker runs every ~2 minutes. Force re-sync (`/api/sync` with `update:true`) triggers immediate metadata pass and overwrites image/description/category as available.
-  - AI descriptions via OpenWebUI; category and description writes also add tags (`<category>` and `ai-described`).
-  - Highlights are downloaded-only and re-validated against disk.
+- **Collection/metadata**:
+  - LibraryIndexer handles orders without subproducts, collects activation-key-only products, and gathers all platform downloads. Images prefer purchase icon/image/tile (filtered to avoid torrent/zip URLs); game/bundle API used as fallback. Force metadata scans up to 500 assets.
+  - Categories: heuristics + OpenWebUI; AI descriptions add tags; category tag backfill.
+  - Highlights: downloaded-only, validated against disk.
 
-- **Download fixes**: Standard ThreadPoolExecutor; enlarged HTTP pool; skip marks downloaded if file exists; cache skip requires actual file present; on-shutdown signals handled.
+- **Downloads**: ThreadPoolExecutor with tuned HTTP pool; skips mark downloaded; download failures recorded to `download_error`.
 
-- **DB**: `assets` table includes `image_url`, `description`, `category`; `asset_tags` supports tags; `assets.db` lives in `data/`. Reconciliation marks downloads based on disk paths (bundle/product and fallback).
+- **DB**: `assets` includes `activation_key`, `download_error`, `image_url`, `description`, `category`; `asset_tags` for tags; `assets.db` in `data/`.
 
-- **Env/AI**: Uses `OPENWEBUI_URL`, `OPENWEBUI_MODEL`, `OPENWEBUI_API_KEY`. No Ollama fallback. `.env` expected.
+- **Auth/AI**: `_simpleauth_sess` required; OpenWebUI (URL/model/API key) needed for AI; no Ollama fallback.
 
-- **Endpoints**: `/api/highlights`, `/api/assets`, `/api/assets/{id}`, `/api/assets/{id}/file`, `/api/reclassify`, `/api/sync`, `/api/download`, websocket `/ws/updates`.
+- **Endpoints**: `/api/highlights`, `/api/bundles`, `/api/assets`, `/api/assets/{id}`, `/api/assets/{id}/file`, `/api/reclassify`, `/api/sync`, `/api/download`, `/api/debug/purchases`, `/api/debug/orders`, websocket `/ws/updates`.
 
-## Observed Issues / Next Steps
+## Outstanding / Issues
 
-- Categories still skew to `archive`; need better AI prompting/label mapping and perhaps parsing of Humble product types to tags.
-- Many assets lack AI tags despite category set; confirm tag adds and maybe log AI responses.
-- Disk locks occurred when app running; copy DB if querying while server is live.
-- UI: Home tiles/Library working; ensure Back to Home works (added `goHome()`).
-- Metadata refresh now overwrites existing image/description on force re-sync.
+- Activation-key items still need download/instruction text surfaced alongside the key.
+- Image quality still limited to purchase icons/game/bundle lookups; some items may lack high-res covers.
+- Categories can skew to `archive`; prompt/label tuning may be needed.
 
 ## How to Force Metadata Refresh
 
 ```bash
-# Force sync + metadata refresh
 curl -X POST http://127.0.0.1:8000/api/sync \
   -H "Content-Type: application/json" \
   -d '{"update": true}'
 ```
-
-## Debugging AI/Tags
-
-- Check logs for “Top categories after sync” and “Metadata pass complete...” summaries.
-- Item detail shows tags; `ai-described` is added when AI writes a description; category tag equals the AI/heuristic category.
-- If tags stay `archive`, inspect AI prompt or add logging of AI responses in `_fill_descriptions_ai` / categorizer.

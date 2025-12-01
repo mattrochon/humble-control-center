@@ -50,12 +50,27 @@
       cursor: pointer;
       box-shadow: 0 12px 30px rgba(70,255,214,0.25);
     }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+    }
     .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); padding: 16px; margin-top: 12px; }
     .table-wrap { overflow: auto; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     th, td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); text-align: left; }
     th { color: var(--muted); font-size: 12px; letter-spacing: 0.4px; }
     .badge { padding: 4px 8px; border-radius: 8px; background: rgba(70,255,214,0.12); border: 1px solid rgba(70,255,214,0.25); color: var(--accent); font-size: 12px; }
+    .status-pill { padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.06); font-size: 12px; display: inline-flex; gap: 6px; align-items: center; }
+    .status-pill.good { border-color: rgba(70,255,214,0.4); color: var(--accent); }
+    .status-pill.missing { border-color: rgba(255,179,71,0.5); color: var(--accent-2); }
     a { color: var(--accent); text-decoration: none; }
     .thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; background: rgba(255,255,255,0.04); }
     tr:hover { background: rgba(255,255,255,0.04); cursor: pointer; }
@@ -63,32 +78,35 @@
     .user-pill { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); font-size: 12px; }
     td { word-break: break-word; }
     th:nth-child(1), td:nth-child(1) { width: 56px; }
-    th:nth-child(2), td:nth-child(2) { width: 22%; }
+    th:nth-child(2), td:nth-child(2) { width: 20%; }
     th:nth-child(3), td:nth-child(3) { width: 18%; }
-    th:nth-child(4), td:nth-child(4) { width: 20%; }
+    th:nth-child(4), td:nth-child(4) { width: 18%; }
     th:nth-child(5), td:nth-child(5) { width: 10%; }
-    th:nth-child(6), td:nth-child(6) { width: 14%; }
+    th:nth-child(6), td:nth-child(6) { width: 13%; }
     th:nth-child(7), td:nth-child(7) { width: 8%; }
     th:nth-child(8), td:nth-child(8) { width: 6%; }
+    th:nth-child(9), td:nth-child(9) { width: 8%; }
   </style>
 </head>
 <body>
   <div class="page">
     <div class="nav">
-      <a href="/">Humble Library</a>
-      <div class="links">
-        <a href="/">Home</a>
-        <a href="/library">Library</a>
-        <a href="/admin">Control Room</a>
-        <a class="icon-link" href="/settings">⚙ Settings</a>
-        <span class="user-pill" id="userBadgeLibrary" style="display:none;"></span>
+        <a href="/">Humble Library</a>
+        <div class="links">
+          <a href="/">Home</a>
+          <a href="/library">Library</a>
+          <a href="/purchases">Purchases</a>
+          <a href="/admin">Control Room</a>
+          <a class="icon-link" href="/settings">⚙ Settings</a>
+          <span class="user-pill" id="userBadgeLibrary" style="display:none;"></span>
+        </div>
       </div>
-    </div>
     <h1>Library Explorer</h1>
-    <p class="muted">Browse by category, platform, extension, or search.</p>
+    <p class="muted">Browse by category, platform, extension, or search. Downloaded-only is on by default to match Home highlights.</p>
     <div class="card">
       <div class="controls">
         <input class="input" id="searchInput" placeholder="Search" oninput="debouncedSearch()">
+        <input class="input" id="bundleInput" placeholder="Bundle">
         <select id="categorySelect" class="input" onchange="fetchAssets()">
           <option value="">All categories</option>
           <option value="ebook">Ebook</option>
@@ -115,6 +133,7 @@
           <option value="archive">Archive</option>
           <option value="other">Other</option>
         </select>
+        <input class="input" id="bundleInput" placeholder="Bundle">
         <input class="input" id="platformInput" placeholder="Platform">
         <input class="input" id="extInput" placeholder="Extension (pdf, zip...)">
         <select id="sortSelect" class="input" onchange="fetchAssets()">
@@ -122,6 +141,7 @@
           <option value="alpha">A → Z</option>
           <option value="bundle">By bundle</option>
         </select>
+        <label class="toggle"><input type="checkbox" id="includeMissing" onchange="fetchAssets()"> Include not-downloaded</label>
         <button class="btn" onclick="fetchAssets()">Apply</button>
       </div>
       <div class="table-wrap">
@@ -136,6 +156,7 @@
               <th>Tags</th>
               <th>Platform</th>
               <th>Ext</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody id="assetTable"></tbody>
@@ -153,16 +174,22 @@
 
     async function fetchAssets() {
       const q = document.getElementById('searchInput').value.trim();
+      const bundle = document.getElementById('bundleInput').value.trim();
       const platform = document.getElementById('platformInput').value.trim();
       const ext = document.getElementById('extInput').value.trim();
       const category = document.getElementById('categorySelect').value;
       const sort = document.getElementById('sortSelect').value;
+      const includeMissing = document.getElementById('includeMissing').checked;
       const url = new URL('/api/assets', window.location.origin);
       if (q) url.searchParams.set('q', q);
+      if (bundle) url.searchParams.set('bundle', bundle);
+      const orderParam = new URLSearchParams(window.location.search).get('order');
+      if (orderParam) url.searchParams.set('order_id', orderParam);
       if (platform) url.searchParams.set('platform', platform);
       if (ext) url.searchParams.set('ext', ext);
       if (category) url.searchParams.set('category', category);
       url.searchParams.set('sort', sort);
+      if (!includeMissing) url.searchParams.set('downloaded', 'true');
       const res = await fetch(url);
       const data = await res.json();
       renderAssets(data.items);
@@ -175,6 +202,8 @@
         const tr = document.createElement('tr');
         tr.onclick = () => window.location.href = `/item?id=${item.id}`;
         const tags = (item.tags || '').split(',').filter(Boolean);
+        const statusClass = item.downloaded ? 'good' : 'missing';
+        const statusLabel = item.downloaded ? 'Downloaded' : 'Not downloaded';
         tr.innerHTML = `
           <td>${item.image_url ? `<img class="thumb" src="${item.image_url}" alt="">` : ''}</td>
           <td><a href="/item?id=${item.id}">${item.product_title || ''}</a></td>
@@ -184,6 +213,7 @@
           <td>${tags.map(t => `<span class="badge">${t}</span>`).join(' ')}</td>
           <td>${item.platform || ''}</td>
           <td>${item.ext || ''}</td>
+          <td><span class="status-pill ${statusClass}">${statusLabel}</span></td>
         `;
         body.appendChild(tr);
       });
@@ -192,9 +222,14 @@
     function applyPresetCategory() {
       const params = new URLSearchParams(window.location.search);
       const cat = params.get('category');
+      const bundle = params.get('bundle');
       if (cat) {
         const catSelect = document.getElementById('categorySelect');
         if (catSelect) catSelect.value = cat;
+      }
+      if (bundle) {
+        const bundleInput = document.getElementById('bundleInput');
+        if (bundleInput) bundleInput.value = bundle;
       }
     }
 

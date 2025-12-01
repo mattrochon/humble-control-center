@@ -178,6 +178,18 @@
       outline: none;
     }
     .input::placeholder { color: var(--muted); }
+    .debug-box {
+      background: rgba(0,0,0,0.35);
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      max-height: 260px;
+      overflow: auto;
+      font-family: "SFMono-Regular", "Cascadia Code", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .wizard {
       position: fixed;
       inset: 0;
@@ -383,11 +395,31 @@
         </div>
       </div>
     </div>
+
+    <div class="grid" style="margin-top: 12px;">
+      <div class="card">
+        <h3>Debug: Purchases API (home/library)</h3>
+        <p class="muted">Raw JSON from the home/library payload (includes gamekeys and library metadata).</p>
+        <div class="control-row">
+          <button class="btn secondary" onclick="loadPurchasesDebug()">Refresh purchases JSON</button>
+        </div>
+        <div class="debug-box" id="purchasesBox">Click refresh to load purchases JSON.</div>
+      </div>
+      <div class="card">
+        <h3>Debug: Bundles API (orders + bundle info)</h3>
+        <p class="muted">Raw JSON from /api/v1/order and /api/v1/bundle for each purchase (may be large; fetched with your cookie).</p>
+        <div class="control-row">
+          <button class="btn secondary" onclick="loadOrdersDebug()">Refresh orders JSON</button>
+        </div>
+        <div class="debug-box" id="ordersBox">Click refresh to load order/bundle JSON.</div>
+      </div>
+    </div>
   </div>
 
   <script>
     let wizardStep = 1;
     let searchTimer;
+    let debugLoaded = false;
 
     function showWizard(step = 1) {
       wizardStep = step;
@@ -464,6 +496,11 @@
       else {
         document.getElementById('wizard').classList.remove('active');
         fetchAssets();
+        if (!debugLoaded) {
+          debugLoaded = true;
+          loadPurchasesDebug();
+          loadOrdersDebug();
+        }
       }
       const runMeta = [];
       if (data.last_sync) runMeta.push(`Last indexed ${timeAgo(data.last_sync)}`);
@@ -586,6 +623,40 @@
       const prefix = box.textContent ? '\n' : '';
       box.textContent += prefix + line;
       box.scrollTop = box.scrollHeight;
+    }
+
+    async function loadPurchasesDebug() {
+      const box = document.getElementById('purchasesBox');
+      box.textContent = 'Loading purchases JSON...';
+      try {
+        const res = await fetch('/api/debug/purchases');
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({}));
+          box.textContent = detail.detail || 'Failed to load purchases JSON.';
+          return;
+        }
+        const data = await res.json();
+        box.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        box.textContent = `Error loading purchases JSON: ${err}`;
+      }
+    }
+
+    async function loadOrdersDebug() {
+      const box = document.getElementById('ordersBox');
+      box.textContent = 'Loading orders JSON (may take a bit)...';
+      try {
+        const res = await fetch('/api/debug/orders');
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({}));
+          box.textContent = detail.detail || 'Failed to load orders JSON.';
+          return;
+        }
+        const data = await res.json();
+        box.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        box.textContent = `Error loading orders JSON: ${err}`;
+      }
     }
 
     async function loadLogs() {

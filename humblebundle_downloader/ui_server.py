@@ -11,6 +11,7 @@ from typing import List, Optional
 from contextlib import suppress
 
 import requests
+import parsel
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 
 from .asset_db import AssetDB
 from .download_library import DownloadLibrary
-from .library_index import LibraryIndexer, AssetCategorizer
+from .library_index import LibraryIndexer, AssetCategorizer, _clean_name
 from .state import UIState, default_data_dir
 
 logger = logging.getLogger(__name__)
@@ -227,7 +228,7 @@ class Coordinator:
 
     def _fill_meta_from_orders(self, indexer: LibraryIndexer, force: bool = False):
         if force:
-            targets = self.db.get_assets_for_orders(limit=60)
+            targets = self.db.get_assets_for_orders(limit=500)
         else:
             targets = self.db.get_assets_missing_image(limit=30) + self.db.get_assets_missing_description(limit=30)
         needed_by_order: dict[str, list[int]] = {}
@@ -258,6 +259,10 @@ class Coordinator:
                 if entry.get("description"):
                     self.db.set_description(asset_id, entry["description"])
                     self._append_log(f"Set description for {prod or asset_id}")
+    # Also backfill download URLs for this order where missing.
+            func = globals().get("_backfill_download_urls")
+            if func:
+                func(order_id, order)
 
     def _fill_descriptions_ai(self, force: bool = False):
         if not (os.environ.get("OPENWEBUI_URL") and os.environ.get("OPENWEBUI_MODEL")):
@@ -336,13 +341,14 @@ class Coordinator:
         event: dict | None = None
         try:
             session = self._session()
+            known_orders = db.distinct_order_ids(include_trove=trove if trove is not None else False)
             indexer = LibraryIndexer(
                 session=session,
                 library_path=self.state.data["library_path"],
                 ext_include=self.state.data.get("include"),
                 ext_exclude=self.state.data.get("exclude"),
                 platforms=self.state.data.get("platforms"),
-                purchase_keys=None, # placeholder
+                purchase_keys=known_orders or None,
                 trove=trove if trove is not None else self.state.data.get("trove"),
             )
             assets = indexer.collect()
@@ -399,28 +405,10 @@ class Coordinator:
         self.download_skipped = 0
         event: dict | None = None
         try:
-            session = self._session()
-            indexer = LibraryIndexer(
-                session=session,
-                library_path=self.state.data["library_path"],
-                ext_include=self.state.data.get("include"),
-                ext_exclude=self.state.data.get("exclude"),
-                platforms=self.state.data.get("platforms"),
-                purchase_keys=None,  # placeholder
-                trove=trove if trove is not None else self.state.data.get("trove"),
-                stop_event=self.stop_event,
-            )
-            assets = indexer.collect()
-            asset_map = {self._cache_key_for_asset(a): a for a in assets}
+            library_path = self.state.data.get("library_path", "")
+            assets = db.get_assets_pending_download(library_path, limit=None)
             self.download_total = len(assets)
-            self.download_done = 0
-            self._append_log(
-                f"Collected {self.download_total} assets for download (filters applied)."
-            )
-            if assets:
-                sample = [os.path.basename(a.get("download_path", a.get("file_name", ""))) for a in assets[:3]]
-                self._append_log(f"Sample to download: {', '.join(sample)}")
-            self._append_log(f"Starting download of {self.download_total} items.")
+            self._append_log(f"Download pass: {self.download_total} assets with URLs need download.")
             self.events.publish(
                 {
                     "type": "download-start",
@@ -429,119 +417,17 @@ class Coordinator:
                 }
             )
             if self.download_total == 0:
-                self._append_log("No assets matched filters; nothing to download.")
-                self.downloading = False
-                self.events.publish(
-                    {
-                        "type": "download-complete",
-                        "ts": time.time(),
-                        "done": 0,
-                        "total": 0,
-                        "failures": 0,
-                        "skipped": 0,
-                    }
-                )
+                self._append_log("No assets with URLs are pending download.")
+                event = {
+                    "type": "download-complete",
+                    "ts": time.time(),
+                    "done": 0,
+                    "total": 0,
+                    "failures": 0,
+                    "skipped": 0,
+                }
                 return
-
-            def _on_download(cache_file_key, local_filename, file_info):
-                asset = asset_map.get(cache_file_key)
-                url = None
-                if asset:
-                    url = asset["url"]
-                    path = asset.get("download_path", local_filename)
-                else:
-                    path = local_filename
-                self.db.mark_downloaded(url or cache_file_key, path)
-                self._append_log(f"Downloaded {os.path.basename(path)}")
-                self.download_done += 1
-                self.events.publish(
-                    {
-                        "type": "download-progress",
-                        "done": self.download_done,
-                        "total": self.download_total,
-                        "file": os.path.basename(path),
-                        "failures": self._download_failures,
-                        "skipped": self.download_skipped,
-                    }
-                )
-
-            def _on_failure(ctx):
-                self._download_failures += 1
-                reason = ctx.get("reason") if isinstance(ctx, dict) else None
-                fname = ""
-                url = ""
-                if isinstance(ctx, dict):
-                    fname = ctx.get("kwargs", {}).get("local_filename", "")
-                    url = ctx.get("kwargs", {}).get("remote_file", "")
-                msg = "Download task failed"
-                if fname:
-                    msg += f" for {os.path.basename(fname)}"
-                elif isinstance(ctx, dict) and ctx.get("args"):
-                    msg += f" ({ctx.get('args')})"
-                if reason:
-                    msg += f" ({reason})"
-                if url:
-                    msg += f" url={url}"
-                self._append_log(msg + ".")
-                self.events.publish(
-                    {
-                        "type": "download-progress",
-                        "done": self.download_done,
-                        "total": self.download_total,
-                        "file": "",
-                        "failures": self._download_failures,
-                        "skipped": self.download_skipped,
-                    }
-                )
-
-            def _on_skip(ctx):
-                self.download_skipped += 1
-                cache_key = ""
-                remote_file = ""
-                local_path = ""
-                if isinstance(ctx, dict):
-                    cache_key = ctx.get("args", [None])[0]
-                    remote_file = ctx.get("kwargs", {}).get("remote_file", "")
-                    folder = ctx.get("kwargs", {}).get("local_folder", "")
-                    fname = ctx.get("kwargs", {}).get("local_filename", "")
-                    if folder and fname:
-                        local_path = os.path.join(folder, fname)
-                # Mark skipped item as downloaded so stats reflect existing files.
-                asset = asset_map.get(cache_key) if cache_key else None
-                url = asset["url"] if asset and asset.get("url") else remote_file or cache_key
-                if url and local_path:
-                    self.db.mark_downloaded(url, local_path)
-                self._append_log("Skipped (already downloaded).")
-                self.events.publish(
-                    {
-                        "type": "download-progress",
-                        "done": self.download_done,
-                        "total": self.download_total,
-                        "file": "",
-                        "failures": self._download_failures,
-                        "skipped": self.download_skipped,
-                    }
-                )
-
-            downloader = DownloadLibrary(
-                self.state.data["library_path"],
-                cookie_auth=self.state.data["session_cookie"],
-                progress_bar=False,
-                ext_include=self.state.data.get("include"),
-                ext_exclude=self.state.data.get("exclude"),
-                platform_include=self.state.data.get("platforms"),
-                purchase_keys=sorted(
-                    {a["order_id"] for a in assets if a.get("order_id") and a.get("order_id") != "trove"}
-                )
-                or None,
-                trove=trove if trove is not None else self.state.data.get("trove"),
-                update=update,
-                download_callback=_on_download,
-                failure_callback=_on_failure,
-                skip_callback=_on_skip,
-                stop_event=self.stop_event,
-            )
-            downloader.start()
+            self._download_direct_from_urls(assets)
             self.last_download = time.time()
             self._append_log(
                 f"Download finished: {self.download_done}/{self.download_total} items. Failures: {self._download_failures} Skipped: {self.download_skipped}"
@@ -563,10 +449,78 @@ class Coordinator:
             if event:
                 self.events.publish(event)
 
+    def _download_direct_from_urls(self, assets: list[dict]):
+        session = self._session()
+        for asset in assets:
+            if self.stop_event.is_set():
+                break
+            urls = _parse_download_urls(asset.get("download_urls"))
+            if not urls:
+                self._append_log(f"No URLs for {asset.get('file_name','')}")
+                continue
+            url = urls[0]
+            local_path = asset.get("download_path") or os.path.join(
+                self.state.data.get("library_path", ""),
+                asset.get("bundle_title", ""),
+                asset.get("product_title", ""),
+                asset.get("file_name", ""),
+            )
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            try:
+                resp = session.get(url, stream=True, timeout=(5, 60))
+                if not resp.ok:
+                    self._append_log(f"Download failed for {asset.get('file_name','')}: status {resp.status_code}")
+                    self._download_failures += 1
+                    continue
+                with open(local_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if self.stop_event.is_set():
+                            break
+                        if chunk:
+                            f.write(chunk)
+                if self.stop_event.is_set():
+                    break
+                self.db.mark_downloaded(url, local_path)
+                self.download_done += 1
+                self.events.publish(
+                    {
+                        "type": "download-progress",
+                        "done": self.download_done,
+                        "total": self.download_total,
+                        "file": os.path.basename(local_path),
+                        "failures": self._download_failures,
+                        "skipped": self.download_skipped,
+                    }
+                )
+            except Exception as exc:
+                self._append_log(f"Download failed for {asset.get('file_name','')}: {exc}")
+                self._download_failures += 1
+
 
 state = UIState()
 db = AssetDB(str(default_data_dir() / "assets.db"))
 event_bus = EventBus()
+
+
+def _reclassify_category(from_cat: str):
+    rows = db.assets_by_category([from_cat])
+    if not rows:
+        return
+    updated = 0
+    for row in rows:
+        new_cat, extra_tags = categorizer.categorize_with_tags(
+            file_name=row.get("file_name", ""),
+            platform=row.get("platform", ""),
+            bundle_title=row.get("bundle_title", ""),
+            product_title=row.get("product_title", ""),
+        )
+        if new_cat and new_cat != from_cat:
+            db.set_category(row["id"], new_cat)
+            if extra_tags:
+                db.add_tags(row["id"], extra_tags + [new_cat])
+            updated += 1
+    if updated:
+        logger.info("Reclassified %s assets from %s", updated, from_cat)
 
 
 def _load_settings_from_db():
@@ -605,7 +559,12 @@ categorizer = LibraryIndexer(
     session=requests.Session(),
     library_path="",
 ).categorizer
+try:
+    _reclassify_category("video")
+except Exception:
+    logger.exception("Failed to reclassify legacy 'video' items")
 shutdown_flag = threading.Event()
+_order_name_cache: dict[str, dict] = {}
 
 # Ensure application logs are visible; default to DEBUG for download tracing.
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
@@ -614,10 +573,18 @@ app = FastAPI()
 
 static_dir = Path(__file__).resolve().parent / "web" / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# React dist (SPA)
+react_dist = static_dir.parent / "react-dist"
+if react_dist.exists():
+    app.mount("/app", StaticFiles(directory=react_dist, html=True), name="react-app")
+    if (react_dist / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=react_dist / "assets"), name="react-assets")
 
 
 @app.get("/")
 def home():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     if not state.ready():
         return RedirectResponse(url="/settings")
     return FileResponse(static_dir / "home.html")
@@ -625,6 +592,8 @@ def home():
 
 @app.get("/library")
 def library():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     if not state.ready():
         return RedirectResponse(url="/settings")
     return FileResponse(static_dir / "library.html")
@@ -632,20 +601,40 @@ def library():
 
 @app.get("/item")
 def item_page():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     if not state.ready():
         return RedirectResponse(url="/settings")
     return FileResponse(static_dir / "item.html")
 
 
+@app.get("/bundle")
+def bundle_page():
+    if not state.ready():
+        return RedirectResponse(url="/settings")
+    return FileResponse(static_dir / "bundle.html")
+
+
 @app.get("/admin")
 def admin():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     if not state.ready():
         return RedirectResponse(url="/settings")
     return FileResponse(static_dir / "index.html")
 
 
+@app.get("/purchases")
+def purchases_page():
+    if not state.ready():
+        return RedirectResponse(url="/settings")
+    return FileResponse(static_dir / "purchases.html")
+
+
 @app.get("/settings")
 def settings_page():
+    if react_dist.exists() and (react_dist / "index.html").exists():
+        return FileResponse(react_dist / "index.html")
     return FileResponse(static_dir / "settings.html")
 
 
@@ -667,6 +656,60 @@ def get_me(request: Request):
     if not name:
         return {"user": ""}
     return {"user": request.headers.get(name, "")}
+
+
+def _fetch_library_json(session: requests.Session) -> dict:
+    """Fetch purchase keys/library metadata from the user order API (cookie-auth)."""
+    try:
+        api_r = session.get("https://www.humblebundle.com/api/v1/user/order", timeout=(5, 15))
+        if api_r.ok:
+            return api_r.json()
+        raise RuntimeError(f"status {api_r.status_code}")
+    except Exception as exc:
+        logger.exception("Failed to fetch library JSON")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch library JSON: {exc}")
+
+
+def _fetch_order_json(session: requests.Session, order_id: str) -> dict:
+    try:
+        order_r = session.get(
+            f"https://www.humblebundle.com/api/v1/order/{order_id}?all_tpkds=true",
+            headers={
+                "content-type": "application/json",
+                "content-encoding": "gzip",
+            },
+            timeout=(5, 20),
+        )
+        if not order_r.ok:
+            raise RuntimeError(f"status {order_r.status_code}")
+        return order_r.json()
+    except Exception as exc:
+        logger.exception("Failed to fetch order %s", order_id)
+        raise HTTPException(status_code=502, detail=f"Failed to fetch order {order_id}: {exc}")
+
+
+def _extract_downloads_from_order(order: dict) -> dict:
+    """Map product title -> list of downloads (web+bt, filename, platform) for backfill."""
+    downloads_by_product: dict[str, list[dict]] = {}
+    for prod in order.get("subproducts") or []:
+        title = _clean_name(prod.get("human_name", ""))
+        entries: list[dict] = []
+        for d in prod.get("downloads", []) or []:
+            for file_type in d.get("download_struct", []) or []:
+                url_obj = file_type.get("url") or {}
+                web = url_obj.get("web")
+                if not web:
+                    continue
+                urls = [web]
+                bt = url_obj.get("bittorrent")
+                if bt:
+                    urls.append(bt)
+                filename = web.split("?", 1)[0].split("/")[-1]
+                platform = (file_type.get("platform") or d.get("platform") or "").lower()
+                entries.append({"filename": filename, "urls": urls, "platform": platform})
+        if entries:
+            downloads_by_product[title] = entries
+    return downloads_by_product
 
 
 def _graceful_signal(signum, frame):
@@ -734,6 +777,7 @@ def status():
         "ai_configured": bool(
             os.environ.get("OPENWEBUI_URL") and os.environ.get("OPENWEBUI_MODEL")
         ),
+        "session_valid": _session_valid(),
     }
 
 
@@ -753,7 +797,15 @@ def get_asset(asset_id: int):
     if not asset:
         raise HTTPException(status_code=404, detail="Not found")
     path = asset.get("download_path")
-    asset["exists"] = bool(path and os.path.exists(path) and os.path.getsize(path) > 0)
+    if path and os.path.exists(path):
+        try:
+            size = os.path.getsize(path)
+            asset["exists"] = size > 0
+            asset["size_bytes"] = size
+        except OSError:
+            asset["exists"] = False
+    else:
+        asset["exists"] = False
     return asset
 
 
@@ -775,6 +827,29 @@ def highlights(limit_per_category: int = 12, max_categories: int = 6):
         max_categories=max_categories,
         library_path=state.data.get("library_path"),
     )
+
+
+@app.get("/api/bundles")
+def list_bundles(limit: int = 500):
+    return db.bundle_summaries(limit=limit)
+
+
+@app.get("/api/purchases")
+def list_purchases(limit: int = 500):
+    return db.purchase_summaries(limit=limit)
+
+
+@app.get("/api/facets")
+def get_facets(downloaded: Optional[int] = None):
+    return db.get_facets(downloaded_only=bool(downloaded))
+
+
+@app.get("/api/order/{order_id}")
+def get_order(order_id: str):
+    if not state.ready():
+        raise HTTPException(status_code=400, detail="Set session cookie first")
+    session = coordinator._session()
+    return _fetch_order_json(session, order_id)
 
 
 @app.post("/api/session")
@@ -820,6 +895,7 @@ def download(payload: SyncPayload):
 @app.get("/api/assets")
 def list_assets(
     q: Optional[str] = None,
+    order_id: Optional[str] = None,
     platform: Optional[str] = None,
     bundle: Optional[str] = None,
     product: Optional[str] = None,
@@ -831,8 +907,9 @@ def list_assets(
     limit: int = 50,
     offset: int = 0,
 ):
-    return db.search_assets(
+    result = db.search_assets(
         query=q,
+        order_id=order_id,
         platform=platform,
         bundle=bundle,
         product=product,
@@ -844,6 +921,19 @@ def list_assets(
         limit=limit,
         offset=offset,
     )
+    items = result.get("items", [])
+    for asset in items:
+        path = asset.get("download_path")
+        if path and os.path.exists(path):
+            try:
+                size = os.path.getsize(path)
+                asset["exists"] = size > 0
+                asset["size_bytes"] = size
+            except OSError:
+                asset["exists"] = False
+        else:
+            asset["exists"] = False
+    return result
 
 
 @app.post("/api/assets/{asset_id}/tags")
@@ -855,6 +945,49 @@ def update_tags(asset_id: int, payload: TagPayload):
 @app.get("/api/logs")
 def get_logs():
     return {"lines": coordinator.log_lines[-100:]}
+
+
+@app.get("/api/debug/purchases")
+def debug_purchases():
+    if not state.ready():
+        raise HTTPException(status_code=400, detail="Set session cookie first")
+    session = coordinator._session()
+    data = _fetch_library_json(session)
+    return data
+
+
+@app.get("/api/debug/orders")
+def debug_orders(limit: Optional[int] = Query(None, ge=1)):
+    if not state.ready():
+        raise HTTPException(status_code=400, detail="Set session cookie first")
+    session = coordinator._session()
+    data = _fetch_library_json(session)
+    keys = []
+    if isinstance(data, dict):
+        keys = data.get("gamekeys") or data.get("gamekeys_json") or []
+    elif isinstance(data, list):
+        keys = [item.get("gamekey") for item in data if isinstance(item, dict) and item.get("gamekey")]
+    if limit:
+        keys = keys[:limit]
+    orders = []
+    bundle_infos = []
+    for key in keys:
+        order = _fetch_order_json(session, key)
+        orders.append(order)
+        bundle_data = {"order_id": key}
+        try:
+            info = session.get(
+                f"https://www.humblebundle.com/api/v1/bundle/{key}",
+                timeout=(5, 15),
+            )
+            if info.ok:
+                bundle_data["bundle_info"] = info.json()
+            else:
+                bundle_data["error"] = f"status {info.status_code}"
+        except Exception as exc:
+            bundle_data["error"] = str(exc)
+        bundle_infos.append(bundle_data)
+    return {"orders": orders, "count": len(orders), "bundles": bundle_infos}
 
 
 @app.get("/api/settings")
@@ -930,6 +1063,65 @@ def update_settings(payload: SettingsPayload):
     return {"ok": True}
 
 
+def _backfill_download_urls(order_id: str, order: dict):
+    if not order_id or not order:
+        return
+    downloads_map = _extract_downloads_from_order(order)
+    if not downloads_map:
+        return
+    missing = db.get_assets_missing_download_urls(limit=200)
+    targets = [m for m in missing if m.get("order_id") == order_id]
+    for asset in targets:
+        title = (asset.get("product_title") or "").strip()
+        filename = (asset.get("file_name") or "").strip()
+        platform = (asset.get("platform") or "").lower()
+        dl_entries = downloads_map.get(title) or []
+        best = None
+        if dl_entries:
+            # Prefer matching filename and platform.
+            for entry in dl_entries:
+                if entry.get("filename") == filename and (not platform or entry.get("platform") == platform):
+                    best = entry
+                    break
+            # Fallback: match filename only.
+            if not best:
+                for entry in dl_entries:
+                    if entry.get("filename") == filename:
+                        best = entry
+                        break
+        if not best:
+            # Try any product: match filename (and platform if possible).
+            for entries in downloads_map.values():
+                for entry in entries:
+                    if entry.get("filename") == filename and (not platform or entry.get("platform") == platform):
+                        best = entry
+                        break
+                if best:
+                    break
+            if not best:
+                for entries in downloads_map.values():
+                    for entry in entries:
+                        if entry.get("filename") == filename:
+                            best = entry
+                            break
+                    if best:
+                        break
+        if not best:
+            continue
+        urls = best.get("urls") or []
+        if urls:
+            db.set_download_urls(asset["id"], urls)
+
+
+def _session_valid() -> bool:
+    try:
+        session = coordinator._session()
+        r = session.get("https://www.humblebundle.com/api/v1/user/order", timeout=(5, 10))
+        return r.ok
+    except Exception:
+        return False
+
+
 def _reclassify_assets(asset_ids: Optional[List[int]] = None) -> dict:
     assets = db.get_assets_for_reclassify(asset_ids)
     updated = 0
@@ -947,6 +1139,33 @@ def _reclassify_assets(asset_ids: Optional[List[int]] = None) -> dict:
         else:
             skipped += 1
     return {"updated": updated, "skipped": skipped, "total": len(assets)}
+
+
+def _filename_only(url: str) -> str:
+    if not url:
+        return ""
+    base = url.split("?", 1)[0]
+    return base.split("/")[-1]
+
+
+def _parse_download_urls(val) -> list[str]:
+    if not val:
+        return []
+    if isinstance(val, list):
+        return [str(v).strip() for v in val if str(v).strip()]
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return []
+        try:
+            if s.startswith("["):
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(v).strip() for v in parsed if str(v).strip()]
+            return [part.strip() for part in s.split(",") if part.strip()]
+        except Exception:
+            return [part.strip() for part in s.split(",") if part.strip()]
+    return []
 
 
 @app.post("/api/reclassify")

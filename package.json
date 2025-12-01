@@ -1,0 +1,16 @@
+{
+  "name": "humble-root",
+  "private": true,
+  "workspaces": ["react-ui"],
+  "packageManager": "yarn@1.22.22",
+  "scripts": {
+    "install": "yarn --cwd react-ui install",
+    "build": "yarn --cwd react-ui build",
+    "dev": "yarn --cwd react-ui dev",
+    "preview": "yarn --cwd react-ui preview",
+    "start": "concurrently -k -n ui,api \"yarn --cwd react-ui dev\" \"py -m poetry run hbd-ui\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

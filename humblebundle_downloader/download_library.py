@@ -114,7 +114,9 @@ class DownloadLibrary:
                     title = _clean_name(product["human-name"])
                     self._process_trove_product(title, product)
             else:
-                for order_id in self.purchase_keys:
+                keys = self.purchase_keys or self._get_purchase_keys()
+                logger.info("Processing %d purchase keys", len(keys or []))
+                for order_id in keys or []:
                     if self.stop_event and self.stop_event.is_set():
                         break
                     self._process_order_id(order_id)

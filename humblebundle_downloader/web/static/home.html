@@ -88,6 +88,47 @@
     }
     .navbar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 8px; }
     .category-chip { padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: var(--text); font-size: 12px; }
+    .bundle-card {
+      position: relative;
+      height: 120px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(70,255,214,0.15), rgba(255,179,71,0.08));
+      border: 1px solid rgba(255,255,255,0.12);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      cursor: pointer;
+    }
+    .bundle-card .bg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center;
+      opacity: 0.28;
+      transition: opacity 0.2s ease;
+    }
+    .bundle-card:hover .bg { opacity: 0.45; }
+    .bundle-card .content {
+      position: relative;
+      padding: 12px;
+      z-index: 2;
+      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.45) 80%);
+    }
+    .bundle-card .title { font-size: 16px; font-weight: 700; margin: 0; }
+    .bundle-card .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .bundle-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .monogram-small {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-size: 42px;
+      font-weight: 800;
+      color: rgba(255,255,255,0.18);
+      letter-spacing: 1px;
+    }
     @media (max-width: 800px) {
       .hero { grid-template-columns: 1fr; }
       .row { grid-auto-columns: 80%; }
@@ -101,6 +142,7 @@
       <div style="display:flex; gap:12px;">
       <a class="category-chip" href="/">Home</a>
       <a class="category-chip" href="/library">Library</a>
+      <a class="category-chip" href="/purchases">Purchases</a>
       <a class="category-chip" href="/admin">Control Room</a>
       <a class="icon-link" href="/settings">⚙ Settings</a>
       <span class="user-pill" id="userBadgeHome" style="display:none;"></span>
@@ -117,6 +159,7 @@
       </div>
     </div>
 
+    <div id="bundlesSection"></div>
     <div id="highlights"></div>
   </div>
 
@@ -133,10 +176,46 @@
       window.location.href = url.toString();
     }
 
-    function openLibrary(category) {
+    function openLibrary(category, bundle) {
       const url = new URL('/library', window.location.origin);
       if (category) url.searchParams.set('category', category);
+      if (bundle) url.searchParams.set('bundle', bundle);
       window.location.href = url.toString();
+    }
+
+    function renderBundles(bundles) {
+      const container = document.getElementById('bundlesSection');
+      container.innerHTML = '';
+      if (!bundles.length) return;
+      const section = document.createElement('div');
+      section.className = 'section';
+      section.innerHTML = `
+        <div class="section-header">
+          <div>
+            <h3 class="section-title">Bundles</h3>
+            <div class="muted">${bundles.length} bundles</div>
+          </div>
+          <button class="btn" onclick="openLibrary('', '')">Open Library</button>
+        </div>
+        <div class="bundle-row" id="bundleRow"></div>
+      `;
+      container.appendChild(section);
+      const row = section.querySelector('#bundleRow');
+      bundles.forEach(bundle => {
+        const card = document.createElement('div');
+        card.className = 'bundle-card';
+        const imgStyle = bundle.image_url ? `background-image:url('${bundle.image_url}')` : '';
+        const monogram = (bundle.bundle_title || '?').slice(0,1).toUpperCase();
+        card.onclick = () => openLibrary('', bundle.bundle_title);
+        card.innerHTML = `
+          ${bundle.image_url ? `<div class="bg" style="${imgStyle}"></div>` : `<div class="monogram-small">${monogram}</div>`}
+          <div class="content">
+            <div class="title">${bundle.bundle_title}</div>
+            <div class="meta">${bundle.total} items · ${bundle.downloaded || 0} downloaded</div>
+          </div>
+        `;
+        row.appendChild(card);
+      });
     }
 
     function renderHighlights(groups) {
@@ -183,6 +262,17 @@
       });
     }
 
+    async function loadBundles() {
+      try {
+        const res = await fetch('/api/bundles');
+        if (!res.ok) return;
+        const data = await res.json();
+        renderBundles(data);
+      } catch (err) {
+        console.warn('Failed to load bundles', err);
+      }
+    }
+
     async function loadHighlights() {
       const status = await fetchStatus();
       if (!status.ready || (status.stats && status.stats.total === 0)) {
@@ -194,6 +284,7 @@
       renderHighlights(data);
     }
 
+    loadBundles();
     loadHighlights();
     fetch('/api/me').then(r => r.json()).then(d => {
       if (d.user) {

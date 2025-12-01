@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "humblebundle-downloader"
+version = "0.1.0"
+description = "Self-hosted web UI and downloader for your Humble Bundle library (FastAPI + Tauri wrapper)."
+authors = ["Humble UI Maintainers <noreply@example.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "humblebundle_downloader" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "0.115.14"
+uvicorn = "0.32.1"
+requests = "2.32.3"
+parsel = "1.9.1"
+lxml = "5.2.2"
+pydantic = "2.12.4"
+python-dotenv = "1.2.1"
+
+[tool.poetry.scripts]
+hbd-ui = "humblebundle_downloader.ui_server:run"
+hbd-download = "humblebundle_downloader.cli:cli"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"

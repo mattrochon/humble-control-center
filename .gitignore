@@ -15,3 +15,6 @@ library/
 *.sqlite3
 *.log
 screenshots/*.psd
+/humblebundle_downloader/web/react-dist
+/humblebundle_downloader/web/static_legacy
+/react-ui/test-results

@@ -7,6 +7,7 @@ import re
 import time
 import threading
 from typing import Dict, Iterable, List, Optional
+from pathlib import Path
 
 import parsel
 import requests
@@ -389,6 +390,9 @@ class LibraryIndexer:
         self.trove = trove
         self.categorizer = AssetCategorizer()
         self.stop_event = stop_event
+        self._image_missing_logs = 0
+        self._debug_dumped = False
+        self._game_image_cache: dict[str, Optional[str]] = {}
 
     def collect(self) -> List[Dict]:
         assets: List[Dict] = []
@@ -406,9 +410,24 @@ class LibraryIndexer:
                 break
             order = self._fetch_order(order_id)
             if not order:
+                logger.warning("Order fetch failed or empty for %s (check session cookie)", order_id)
                 continue
-            bundle_title = _clean_name(order["product"]["human_name"])
-            for product in order["subproducts"]:
+            order_product = order.get("product", {}) or {}
+            bundle_title = _clean_name(order_product.get("human_name", ""))
+            order_category = (order_product.get("category") or "").lower()
+            products = order.get("subproducts") or []
+        if not products:
+            # Handle single-product orders without subproducts.
+            products = [
+                {
+                    "human_name": bundle_title or order.get("product", {}).get("human_name", ""),
+                    "downloads": order.get("downloads", []),
+                    "tpkd_dict": order.get("tpkd_dict"),
+                    "icon": order.get("product", {}).get("image"),
+                    "category": order_category,
+                }
+            ]
+            for product in products:
                 if self.stop_event and self.stop_event.is_set():
                     break
                 assets.extend(
@@ -422,12 +441,39 @@ class LibraryIndexer:
             return {}
         meta = {}
         bundle_title = _clean_name(order["product"].get("human_name", ""))
+        bundle_fallback_image = self._extract_image(order.get("product", {})) if isinstance(order.get("product"), dict) else None
+        # Diagnostic: dump the first order payload we see so we can locate image fields reliably.
+        if not self._debug_dumped:
+            try:
+                data_dir = Path(__file__).resolve().parent.parent / "data"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                sample_path = data_dir / f"order_sample_{order.get('gamekey','unknown')}.json"
+                with sample_path.open("w", encoding="utf-8") as f:
+                    json.dump(order, f, indent=2)
+                logger.info("Wrote image debug sample to %s", sample_path)
+                self._debug_dumped = True
+            except Exception:
+                logger.exception("Failed to write image debug sample")
         for product in order["subproducts"]:
             product_title = _clean_name(product.get("human_name", ""))
             if not product_title:
                 continue
             image = self._extract_image(product)
+            if not image and bundle_fallback_image:
+                image = bundle_fallback_image
             desc = self._extract_description(product)
+            if not image and self._image_missing_logs < 20:
+                self._image_missing_logs += 1
+                image_like_keys = [
+                    k for k, v in product.items() if isinstance(v, str) and ("http" in v or "//" in v)
+                ]
+                # Provide a small hint about why image is missing without dumping the payload.
+                logger.info(
+                    "No image found for product '%s' (bundle '%s'); url-like keys: %s",
+                    product_title,
+                    bundle_title,
+                    ", ".join(image_like_keys) or "none",
+                )
             meta[product_title] = {
                 "bundle_title": bundle_title,
                 "product_title": product_title,
@@ -437,6 +483,22 @@ class LibraryIndexer:
         return meta
 
     def _get_purchase_keys(self) -> List[str]:
+        # Prefer user order API; fall back to page scrape if needed.
+        try:
+            api_r = self.session.get(
+                "https://www.humblebundle.com/api/v1/user/order", timeout=self.timeout
+            )
+            if api_r.ok:
+                data = api_r.json()
+                if isinstance(data, list):
+                    keys = [item.get("gamekey") for item in data if isinstance(item, dict) and item.get("gamekey")]
+                    if keys:
+                        logger.info("Fetched %d purchase keys via user/order API", len(keys))
+                        return keys
+                else:
+                    logger.debug("Unexpected user/order payload type: %s", type(data))
+        except Exception:
+            logger.debug("user/order API failed", exc_info=True)
         library_r = self.session.get(
             "https://www.humblebundle.com/home/library", timeout=self.timeout
         )
@@ -447,6 +509,7 @@ class LibraryIndexer:
         if user_data is None:
             raise Exception("Unable to download user-data, cookies missing?")
         orders_json = json.loads(user_data)
+        logger.info("Fetched %d purchase keys via library page", len(orders_json.get('gamekeys', [])))
         return orders_json["gamekeys"]
 
     def _fetch_order(self, order_id: str):
@@ -471,23 +534,155 @@ class LibraryIndexer:
         product_title = _clean_name(product["human_name"])
         image_url = self._extract_image(product)
         description = self._extract_description(product)
-        for download_type in product.get("downloads", []):
+        downloads = product.get("downloads", []) or []
+        # Some items expose keys under tpkd_dict/all_tpks or all_tpkds without download_struct; capture them as assets.
+        tpkd = product.get("tpkd_dict") or {}
+        all_tpks = tpkd.get("all_tpks") or []
+        tpkd_entries = product.get("all_tpkds") or []
+        for tk in all_tpks:
+            key_val = tk.get("key") or tk.get("machine_name") or tk.get("gamekey")
+            if not key_val:
+                continue
+            collected.append(
+                self._as_asset(
+                    order_id=order_id,
+                    bundle_title=bundle_title,
+                    product_title=product_title,
+                    platform="key",
+                    category="key",
+                    file_name=key_val,
+                    url="",
+                    md5=None,
+                    uploaded_at=tk.get("timestamp"),
+                    image_url=image_url,
+                    description=description or tk.get("instructions"),
+                    tags=["key"],
+                    activation_key=key_val,
+                    order_name=bundle_title,
+                )
+            )
+        for entry in tpkd_entries:
+            platform_hint = (entry.get("platform") or "").lower()
+            if entry.get("key") or entry.get("tpkd_dict"):
+                key_val = entry.get("key") or entry.get("tpkd_dict", {}).get("machine_name") or entry.get("tpkd_dict", {}).get("gamekey")
+                if key_val:
+                    collected.append(
+                        self._as_asset(
+                            order_id=order_id,
+                            bundle_title=bundle_title,
+                            product_title=product_title,
+                            platform=platform_hint or "key",
+                            category="key",
+                            file_name=key_val,
+                            url="",
+                            md5=None,
+                            uploaded_at=entry.get("timestamp"),
+                            image_url=image_url,
+                            description=description or entry.get("instructions"),
+                            tags=["key"],
+                            activation_key=key_val,
+                            order_name=bundle_title,
+                        )
+                    )
+                continue
+            url_obj = entry.get("url") if isinstance(entry, dict) else None
+            if isinstance(url_obj, dict) and "web" in url_obj:
+                url = url_obj["web"]
+                filename = self._canonical_url(url).split("/")[-1]
+                if not self._should_download_file(filename):
+                    continue
+                category, extra_tags = self.categorizer.categorize_with_tags(
+                    file_name=filename,
+                    platform=platform_hint,
+                    bundle_title=bundle_title,
+                    product_title=product_title,
+                )
+                collected.append(
+                    self._as_asset(
+                        order_id=order_id,
+                        bundle_title=bundle_title,
+                        product_title=product_title,
+                        platform=platform_hint or "other",
+                        category=category,
+                        file_name=filename,
+                        url=self._canonical_url(url),
+                        md5=entry.get("md5"),
+                        uploaded_at=entry.get("timestamp"),
+                        image_url=image_url,
+                        description=description,
+                        tags=[category, *extra_tags],
+                        download_urls=[url],
+                        order_name=bundle_title,
+                    )
+                )
+
+        if not downloads and not all_tpks and not tpkd_entries:
+            # Create a stub asset so the purchase appears even without downloads/keys.
+            stub_url = f"stub:{order_id}:{product_title}"
+            stub_category = (product.get("category") or bundle_title or "other").lower() or "other"
+            collected.append(
+                self._as_asset(
+                    order_id=order_id,
+                    bundle_title=bundle_title,
+                    product_title=product_title,
+                    platform="other",
+                    category=stub_category,
+                    file_name=f"{product_title}.stub",
+                    url=stub_url,
+                    md5=None,
+                    uploaded_at=None,
+                    image_url=image_url,
+                    description=description or product.get("instructions"),
+                    tags=[stub_category, "stub"],
+                    order_name=bundle_title,
+                )
+            )
+            return collected
+
+        for download_type in downloads:
             if self.stop_event and self.stop_event.is_set():
                 break
             platform_hint = download_type.get("platform", "").lower()
-            if not self._should_download_platform(platform_hint):
-                continue
             for file_type in download_type.get("download_struct", []):
                 if self.stop_event and self.stop_event.is_set():
                     break
                 file_platform = (file_type.get("platform") or platform_hint).lower()
                 if not self._should_download_platform(file_platform):
                     continue
+                # Activation key only entries
+                if file_type.get("key") or file_type.get("tpkd_dict"):
+                    key_val = file_type.get("key") or file_type.get("tpkd_dict", {}).get("machine_name") or file_type.get("tpkd_dict", {}).get("gamekey")
+                    if key_val:
+                        collected.append(
+                            self._as_asset(
+                                order_id=order_id,
+                                bundle_title=bundle_title,
+                                product_title=product_title,
+                                platform="key",
+                                category="key",
+                                file_name=key_val,
+                                 url="",
+                                 md5=None,
+                                 uploaded_at=file_type.get("timestamp")
+                                 or file_type.get("uploaded_at"),
+                                 image_url=image_url,
+                                 description=description,
+                                 tags=["key"],
+                                 activation_key=key_val,
+                                 order_name=bundle_title,
+                             )
+                        )
+                    continue
                 if "url" in file_type and "web" in file_type["url"]:
                     url = file_type["url"]["web"]
                     filename = self._canonical_url(url).split("/")[-1]
                     if not self._should_download_file(filename):
                         continue
+                    url_list = [url]
+                    if isinstance(file_type.get("url"), dict):
+                        bt = file_type["url"].get("bittorrent")
+                        if bt:
+                            url_list.append(bt)
                     category, extra_tags = self.categorizer.categorize_with_tags(
                         file_name=filename,
                         platform=file_platform,
@@ -509,6 +704,8 @@ class LibraryIndexer:
                             image_url=image_url,
                             description=description,
                             tags=[category, *extra_tags],
+                            download_urls=url_list,
+                            order_name=bundle_title,
                         )
                     )
         return collected
@@ -582,6 +779,9 @@ class LibraryIndexer:
         image_url: Optional[str] = None,
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        activation_key: Optional[str] = None,
+        order_name: Optional[str] = None,
+        download_urls: Optional[List[str]] = None,
     ) -> Dict:
         ext = file_name.split(".")[-1].lower() if "." in file_name else ""
         local_path = os.path.join(bundle_title, product_title, file_name)
@@ -605,11 +805,15 @@ class LibraryIndexer:
             "image_url": image_url,
             "description": description,
             "tags": tags or [],
+            "order_name": order_name or bundle_title,
+            "activation_key": activation_key,
+            "download_urls": download_urls or [],
         }
 
     def _extract_image(self, product: Dict) -> Optional[str]:
         if not isinstance(product, dict):
             return None
+        # Prefer any explicit image/icon/tile field first.
         url_fields = [
             "tile_image",  # common in order subproducts
             "icon",
@@ -620,20 +824,155 @@ class LibraryIndexer:
             "thumbnail",
             "thumb",
         ]
+        candidates: List[str] = []
         for key in url_fields:
             val = product.get(key)
-            if isinstance(val, str) and val.startswith("http"):
-                return val
-            if isinstance(val, dict):
-                # Pick the largest-looking URL entry
-                for subval in sorted(val.values(), reverse=True):
-                    if isinstance(subval, str) and subval.startswith("http"):
-                        return subval
+            candidates.extend(self._extract_url_candidates(val))
         visuals = product.get("visuals")
-        if isinstance(visuals, dict):
-            for val in visuals.values():
-                if isinstance(val, str) and val.startswith("http"):
-                    return val
+        candidates.extend(self._extract_url_candidates(visuals))
+        # Broader scan across the product payload; filtering will drop torrent/zip links.
+        if not candidates:
+            for val in product.values():
+                candidates.extend(self._extract_url_candidates(val))
+        # Fallback: try the game info API for a larger image.
+        if not candidates:
+            fetched = self._fetch_game_image(product)
+            if fetched:
+                candidates.append(fetched)
+        # Fallback: try bundle-level image if available in the order payload.
+        if not candidates:
+            bundle_image = self._extract_bundle_image_from_order(product)
+            if bundle_image:
+                candidates.append(bundle_image)
+        if not candidates:
+            return None
+        return self._pick_best_image_url(candidates)
+
+    def _extract_url_candidates(self, val) -> List[str]:
+        found: List[str] = []
+        if isinstance(val, str):
+            # Pull any http/https URLs embedded in the string to avoid missing inline links.
+            for match in re.findall(r"https?://[^\s\"'>]+", val):
+                normalized = self._normalize_image_url(match)
+                if normalized and self._is_plausible_image_url(normalized):
+                    found.append(normalized)
+            # Also handle protocol-relative or scheme-less CDN URLs.
+            normalized = self._normalize_image_url(val)
+            if normalized and self._is_plausible_image_url(normalized):
+                found.append(normalized)
+        elif isinstance(val, dict):
+            for subval in val.values():
+                found.extend(self._extract_url_candidates(subval))
+        elif isinstance(val, list):
+            for item in val:
+                found.extend(self._extract_url_candidates(item))
+        return found
+
+    def _normalize_image_url(self, url: str) -> Optional[str]:
+        """Accept http/https or protocol-relative URLs; ignore obvious non-URLs."""
+        raw = url.strip()
+        if not raw:
+            return None
+        if raw.startswith("//"):
+            return "https:" + raw
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw
+        # Humble sometimes returns domain-only without scheme; patch in https.
+        if ("humblebundle" in raw or "cloudfront" in raw or "digitaloceanspaces" in raw) and "/" in raw:
+            return "https://" + raw
+        return None
+
+    def _is_plausible_image_url(self, url: str) -> bool:
+        """Filter out torrent/download links and prefer typical image assets."""
+        lowered = url.lower()
+        base = lowered.split("?", 1)[0]
+        if ".torrent" in lowered:
+            return False
+        if any(ext in lowered for ext in (".zip", ".rar", ".7z", ".tar", ".gz")):
+            return False
+        image_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg")
+        if base.endswith(image_exts):
+            return True
+        # Heuristic: allow URLs containing common image path hints while avoiding obvious downloads.
+        if any(token in lowered for token in ("image", "images", "cover", "tile", "thumb", "thumbnail", "artwork", "banner")):
+            if not any(token in lowered for token in ("download", "dl", "payload", "torrent", "manifest", ".zip", ".rar", ".7z")):
+                return True
+        return False
+
+    def _pick_best_image_url(self, urls: List[str]) -> str:
+        """Pick the highest-resolution-looking URL from a set of candidates."""
+        def score(url: str) -> int:
+            area_score = 0
+            for match in re.findall(r"(\d{2,4})x(\d{2,4})", url):
+                try:
+                    w, h = int(match[0]), int(match[1])
+                    area_score = max(area_score, w * h)
+                except Exception:
+                    continue
+            # Prefer hints of original/large/hires.
+            bonus = 0
+            lowered = url.lower()
+            if "original" in lowered or "hires" in lowered or "large" in lowered:
+                bonus += 500000
+            # Fallback: longer URLs often carry size tokens we couldn't parse.
+            return area_score + bonus + len(url)
+
+        best = max(urls, key=score)
+        return best
+
+    def _fetch_game_image(self, product: Dict) -> Optional[str]:
+        """Query the game info API for a higher-res image using machine/game id."""
+        game_id = (
+            product.get("machine_name")
+            or product.get("machine-name")
+            or product.get("game_id")
+            or product.get("game-id")
+        )
+        if not game_id:
+            return None
+        key = str(game_id)
+        if key in self._game_image_cache:
+            return self._game_image_cache[key]
+        url = f"https://www.humblebundle.com/api/v1/game/{game_id}"
+        try:
+            r = self.session.get(url, timeout=self.timeout)
+            if not r.ok:
+                self._game_image_cache[key] = None
+                return None
+            data = r.json()
+            # Look for common image fields.
+            candidates = []
+            for field in (
+                "image",
+                "large_image",
+                "tile_image",
+                "logo",
+                "header_image",
+                "background_image",
+                "featured_image",
+                "featured_small_image",
+            ):
+                candidates.extend(self._extract_url_candidates(data.get(field)))
+            visuals = data.get("visuals")
+            candidates.extend(self._extract_url_candidates(visuals))
+            if candidates:
+                best = self._pick_best_image_url(candidates)
+                self._game_image_cache[key] = best
+                return best
+        except Exception:
+            logger.debug("Game info fetch failed for %s", game_id, exc_info=True)
+        self._game_image_cache[key] = None
+        return None
+
+    def _extract_bundle_image_from_order(self, product: Dict) -> Optional[str]:
+        """Try to pull a bundle-level image from the parent order structure."""
+        # The parent order isn't passed here, so rely on known product keys that may carry bundle visuals.
+        bundle_keys = ("bundle_tile_image", "bundle_icon", "bundle_logo", "bundle_image")
+        for key in bundle_keys:
+            if key in product:
+                imgs = self._extract_url_candidates(product.get(key))
+                if imgs:
+                    return imgs[0]
         return None
 
     def _extract_description(self, product: Dict) -> Optional[str]:
@@ -653,9 +992,7 @@ class LibraryIndexer:
         return None
 
     def _should_download_platform(self, platform: str) -> bool:
-        platform = platform.lower()
-        if self.platforms and platform not in self.platforms:
-            return False
+        # Always collect all platform variants so multi-platform products are indexed.
         return True
 
     def _should_download_file(self, filename: str) -> bool:
